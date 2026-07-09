@@ -136,7 +136,6 @@
   var $formBody = document.getElementById("formBody");
   var $formHeading = document.getElementById("formHeading");
   var $toast = document.getElementById("toast");
-  var $fileInput = document.getElementById("fileInput");
 
   // ---------------------------------------------------------------
   // Clock
@@ -473,19 +472,33 @@
     formFocusables = [];
 
     // --- Upload button (parses .m3u8/.m3u list files) ---
+    // Implemented as a <label> wrapping a real (visually-hidden) file input.
+    // This is the most reliable trigger pattern on thin/older browsers —
+    // native label-for-input association opens the picker even when
+    // synthetic input.click() calls from unrelated elements are blocked.
     var uploadWrap = document.createElement("div");
     uploadWrap.className = "field";
     var uploadLabel = document.createElement("label");
     uploadLabel.textContent = "Upload playlist file";
     uploadWrap.appendChild(uploadLabel);
-    var uploadBtn = document.createElement("div");
+
+    var uploadBtn = document.createElement("label");
     uploadBtn.className = "filebtn";
-    uploadBtn.innerHTML = "Choose .m3u8 / .m3u file<span class='fname'>No file selected</span>";
-    uploadBtn.__activate = function () {
-      $fileInput.value = "";
-      $fileInput.__targetChannelId = null; // will use the select below at import time
-      $fileInput.click();
-    };
+    uploadBtn.setAttribute("for", "fileInputReal");
+    var fileInputReal = document.createElement("input");
+    fileInputReal.type = "file";
+    fileInputReal.id = "fileInputReal";
+    fileInputReal.accept = ".m3u8,.m3u,audio/x-mpegurl,application/x-mpegurl,application/vnd.apple.mpegurl";
+    var btnText = document.createElement("span");
+    btnText.textContent = "Choose .m3u8 / .m3u file";
+    var fnameEl = document.createElement("span");
+    fnameEl.className = "fname";
+    fnameEl.textContent = "No file selected";
+    uploadBtn.appendChild(fileInputReal);
+    uploadBtn.appendChild(btnText);
+    uploadBtn.appendChild(fnameEl);
+    // D-pad Enter support: focusing this row + pressing Enter clicks the nested real input
+    uploadBtn.__activate = function () { fileInputReal.click(); };
     uploadWrap.appendChild(uploadBtn);
     $formBody.appendChild(uploadWrap);
     formFocusables.push({ el: uploadBtn, isBtn: true, __activate: uploadBtn.__activate });
@@ -506,11 +519,10 @@
     $formBody.appendChild(chWrap);
     formFocusables.push({ el: chWrap, input: chSelect, isBtn: false });
 
-    uploadBtn.__fnameEl = uploadBtn.querySelector(".fname");
-    $fileInput.onchange = function () {
-      var f = $fileInput.files && $fileInput.files[0];
+    fileInputReal.onchange = function () {
+      var f = fileInputReal.files && fileInputReal.files[0];
       if (!f) return;
-      uploadBtn.__fnameEl.textContent = f.name;
+      fnameEl.textContent = f.name;
       var reader = new FileReader();
       reader.onload = function () {
         var parsed = parseM3U(String(reader.result || ""));
@@ -900,10 +912,19 @@
     if (el && el.__activate) el.__activate();
   });
   $formBody.addEventListener("click", function (e) {
+    // .filebtn is a native <label for="..."> — tapping it already opens
+    // the file picker natively. Don't also fire __activate() here or
+    // some browsers will trigger the picker twice.
+    if (e.target.closest(".filebtn")) {
+      var lbl = e.target.closest(".filebtn");
+      var idx = formFocusables.findIndex(function(f){ return f.el === lbl; });
+      if (idx >= 0) setFormFocus(idx);
+      return;
+    }
     var el = e.target.closest(".btn");
     if (el && el.__activate) {
-      var idx = formFocusables.findIndex(function(f){ return f.el === el; });
-      if (idx >= 0) setFormFocus(idx);
+      var idx2 = formFocusables.findIndex(function(f){ return f.el === el; });
+      if (idx2 >= 0) setFormFocus(idx2);
       el.__activate();
     }
   });
