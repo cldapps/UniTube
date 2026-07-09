@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=240, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0e0c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>MOSA</title>
+<link rel="icon" href="icons/icon-96.png">
+<link rel="apple-touch-icon" href="icons/icon-96.png">
+<style>
+/* ============================================================
+   MOSA — scoped stream box for QVGA (240x320) keypad phones
+   No frameworks. No webfonts. System UI only. Single paint pass.
+   ============================================================ */
+
+:root{
+  --bg:       #0b0e0c;
+  --bg-raise: #12160f;
+  --line:     #23291f;
+  --ink:      #edefea;
+  --ink-dim:  #8a9184;
+  --phos:     #8fe38a;
+  --phos-dim: #4c7a49;
+  --live:     #f2b33d;
+  --danger:   #e0665a;
+  --focus-bg: #1c2417;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{
+  width:100%; height:100%;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:13px;
+  line-height:1.35;
+  overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;
+  user-select:none;
+}
+
+#app{ width:100vw; height:100vh; display:flex; flex-direction:column; position:relative; }
+
+/* ---------- scanline texture, cheap: single repeating gradient ---------- */
+#app::before{
+  content:"";
+  position:absolute; inset:0;
+  pointer-events:none;
+  background:repeating-linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.018) 0px,
+    rgba(255,255,255,0.018) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index:50;
+}
+
+/* ---------- header / status bar ---------- */
+#hdr{
+  flex:0 0 auto;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 8px;
+  border-bottom:1px solid var(--line);
+  background:var(--bg);
+  z-index:5;
+}
+#hdr .brand{
+  font-weight:700;
+  font-size:13px;
+  letter-spacing:0.14em;
+  color:var(--phos);
+}
+#hdr .brand small{ color:var(--ink-dim); font-weight:400; letter-spacing:0.05em; }
+#hdr .clock{ font-size:11px; color:var(--ink-dim); font-variant-numeric:tabular-nums; }
+
+/* ---------- main scroll area ---------- */
+#main{
+  flex:1 1 auto;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:6px 6px 4px;
+  -webkit-overflow-scrolling:touch;
+}
+#main::-webkit-scrollbar{ display:none; }
+
+/* ---------- section label (teletext eyebrow) ---------- */
+.eyebrow{
+  font-size:10px;
+  letter-spacing:0.16em;
+  color:var(--phos-dim);
+  text-transform:uppercase;
+  padding:6px 4px 4px;
+}
+
+/* ---------- generic focusable row/card ---------- */
+.item{
+  display:flex; align-items:center; gap:8px;
+  padding:7px 6px;
+  border:1px solid transparent;
+  border-radius:2px;
+  margin-bottom:3px;
+  background:var(--bg-raise);
+}
+.item .idx{
+  flex:0 0 auto;
+  width:16px; text-align:right;
+  color:var(--ink-dim);
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+}
+.item .meta{ flex:1 1 auto; min-width:0; }
+.item .ttl{
+  font-size:12.5px; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.item .sub{
+  font-size:10.5px; color:var(--ink-dim);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  margin-top:1px;
+}
+.item .tag{
+  flex:0 0 auto;
+  font-size:9px; letter-spacing:0.08em;
+  padding:2px 4px; border-radius:2px;
+  color:var(--live); border:1px solid var(--live);
+  text-transform:uppercase;
+}
+
+/* focused state: this IS the cursor on a d-pad UI, must be unmistakable */
+.item.focus{
+  border-color:var(--phos);
+  background:var(--focus-bg);
+}
+.item.focus .ttl{ color:var(--phos); }
+.item.focus .idx{ color:var(--phos); }
+.item.focus::before{
+  content:"▸";
+  position:absolute;
+  margin-left:-14px;
+  color:var(--phos);
+}
+
+/* channel grid tiles */
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+  padding:2px 4px 6px;
+}
+.tile{
+  position:relative;
+  aspect-ratio:1.6/1;
+  border:1px solid var(--line);
+  background:var(--bg-raise);
+  border-radius:3px;
+  display:flex; flex-direction:column; justify-content:flex-end;
+  padding:6px;
+  overflow:hidden;
+}
+.tile.focus{ border-color:var(--phos); background:var(--focus-bg); }
+.tile .num{
+  position:absolute; top:4px; left:5px;
+  font-size:10px; color:var(--ink-dim);
+  font-variant-numeric:tabular-nums;
+}
+.tile.focus .num{ color:var(--phos); }
+.tile .nm{
+  font-size:11.5px; font-weight:600;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tile.focus .nm{ color:var(--phos); }
+.tile .ct{ font-size:9.5px; color:var(--ink-dim); margin-top:1px; }
+.tile .live-dot{
+  position:absolute; top:5px; right:6px;
+  font-size:8px; color:var(--live);
+  letter-spacing:0.05em;
+}
+
+/* empty state */
+.empty{
+  padding:26px 14px; text-align:center;
+  color:var(--ink-dim); font-size:11.5px;
+}
+.empty .big{ font-size:22px; color:var(--phos-dim); display:block; margin-bottom:6px; }
+
+/* ---------- footer / key hints ---------- */
+#ftr{
+  flex:0 0 auto;
+  display:flex; justify-content:space-between;
+  padding:5px 8px 6px;
+  border-top:1px solid var(--line);
+  background:var(--bg);
+  font-size:10px; color:var(--ink-dim);
+  z-index:5;
+}
+#ftr b{ color:var(--phos); }
+#ftr .r{ color:var(--danger); }
+
+/* ---------- player view ---------- */
+#playerView{
+  position:absolute; inset:0;
+  background:#000;
+  display:none;
+  flex-direction:column;
+  z-index:20;
+}
+#playerView.on{ display:flex; }
+#video{ width:100%; flex:1 1 auto; background:#000; object-fit:contain; }
+#pHud{
+  position:absolute; left:0; right:0; bottom:0;
+  padding:6px 8px 8px;
+  background:linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+  color:#fff;
+  transition:opacity .15s;
+}
+#pHud.hide{ opacity:0; pointer-events:none; }
+#pHud .ttl{ font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#pHud .row{ display:flex; align-items:center; gap:6px; margin-top:4px; }
+#pHud .bar{ flex:1 1 auto; height:3px; background:rgba(255,255,255,0.25); border-radius:2px; overflow:hidden; }
+#pHud .bar i{ display:block; height:100%; width:0%; background:var(--phos); }
+#pHud .tm{ font-size:9.5px; color:#cfd3c9; font-variant-numeric:tabular-nums; }
+#pState{
+  position:absolute; top:0; left:0; right:0; bottom:0;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--phos-dim); font-size:11px; letter-spacing:0.1em;
+  pointer-events:none;
+}
+#pBadgeLive{
+  position:absolute; top:6px; left:8px;
+  font-size:9px; letter-spacing:0.08em; text-transform:uppercase;
+  color:var(--live); border:1px solid var(--live);
+  padding:2px 5px; border-radius:2px;
+  display:none;
+}
+#pBadgeLive.on{ display:block; }
+
+/* ---------- add / form view ---------- */
+#formView{
+  position:absolute; inset:0;
+  background:var(--bg);
+  display:none;
+  flex-direction:column;
+  z-index:30;
+}
+#formView.on{ display:flex; }
+#formBody{ flex:1 1 auto; overflow-y:auto; padding:8px; }
+.field{ margin-bottom:10px; }
+.field label{
+  display:block; font-size:10px; letter-spacing:0.1em;
+  color:var(--ink-dim); text-transform:uppercase; margin-bottom:3px;
+}
+.field input, .field select{
+  width:100%;
+  background:var(--bg-raise);
+  border:1px solid var(--line);
+  color:var(--ink);
+  font-size:12.5px;
+  padding:7px 6px;
+  border-radius:2px;
+  font-family:inherit;
+}
+.field input:focus, .field select:focus{ border-color:var(--phos); outline:none; }
+.field.focus input, .field.focus select{ border-color:var(--phos); background:var(--focus-bg); }
+.btnrow{ margin-top:6px; }
+.btn{
+  display:block; text-align:center;
+  padding:8px 6px;
+  border:1px solid var(--line);
+  border-radius:2px;
+  font-size:12px; letter-spacing:0.06em;
+  color:var(--ink); background:var(--bg-raise);
+  margin-bottom:5px;
+  text-transform:uppercase;
+}
+.btn.primary{ color:var(--phos); border-color:var(--phos-dim); }
+.btn.focus{ border-color:var(--phos); background:var(--focus-bg); color:var(--phos); }
+.hint{ font-size:10px; color:var(--ink-dim); margin-top:8px; line-height:1.5; }
+
+/* toast */
+#toast{
+  position:absolute; left:8px; right:8px; bottom:8px;
+  background:var(--bg-raise); border:1px solid var(--phos-dim);
+  color:var(--ink); font-size:11px;
+  padding:7px 8px; border-radius:2px;
+  z-index:60; display:none;
+}
+#toast.on{ display:block; }
+#toast.err{ border-color:var(--danger); color:#ffcfc9; }
+
+/* nav tabs */
+#tabs{
+  flex:0 0 auto;
+  display:flex;
+  border-bottom:1px solid var(--line);
+  background:var(--bg);
+}
+#tabs .tab{
+  flex:1 1 0;
+  text-align:center;
+  padding:6px 2px;
+  font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase;
+  color:var(--ink-dim);
+  border-bottom:2px solid transparent;
+}
+#tabs .tab.active{ color:var(--phos); border-color:var(--phos); }
+
+/* reduced motion / low power: no transitions beyond opacity flip already used */
+@media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="hdr">
+    <div class="brand">MOSA<small> · stream box</small></div>
+    <div class="clock" id="clock">--:--</div>
+  </div>
+
+  <div id="tabs">
+    <div class="tab" data-tab="home">Home</div>
+    <div class="tab" data-tab="channels">Channels</div>
+    <div class="tab" data-tab="add">Add</div>
+  </div>
+
+  <div id="main"><!-- rendered by JS --></div>
+
+  <div id="ftr">
+    <span><b>OK</b> select</span>
+    <span><b>◂▸</b> tabs</span>
+    <span class="r"><b>0</b> back</span>
+  </div>
+
+  <!-- PLAYER -->
+  <div id="playerView">
+    <span id="pBadgeLive">● Live</span>
+    <video id="video" playsinline webkit-playsinline></video>
+    <div id="pState"></div>
+    <div id="pHud">
+      <div class="ttl" id="pTitle">—</div>
+      <div class="row">
+        <span class="tm" id="pCur">0:00</span>
+        <div class="bar"><i id="pBar"></i></div>
+        <span class="tm" id="pDur">0:00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT FORM -->
+  <div id="formView">
+    <div id="hdr" style="border-bottom:1px solid var(--line)">
+      <div class="brand" id="formHeading">ADD STREAM</div>
+    </div>
+    <div id="formBody"></div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
