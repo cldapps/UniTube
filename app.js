@@ -1,11 +1,11 @@
 /* ============================================================
-   MOSA — app.js
+   UniTube — app.js
    Single-file-style logic (no bundler) for a 240x320 D-pad phone.
    Data model:
      Channel { id, name, urls:[ {id,title,url} ... ] }
        - 1 url  -> "live/direct" channel, tapping plays immediately
        - 2+ urls -> "list" channel, tapping shows an episode list
-   Storage: localStorage key "mosa.channels.v1"
+   Storage: localStorage key "unitube.channels.v1"
    ============================================================ */
 
 (function () {
@@ -32,7 +32,7 @@
     }
   ];
 
-  var STORE_KEY = "mosa.channels.v1";
+  var STORE_KEY = "unitube.channels.v1";
 
   // ---------------------------------------------------------------
   // State
@@ -77,6 +77,46 @@
   }
 
   // ---------------------------------------------------------------
+  // M3U / M3U8 channel-list parser
+  // Handles standard #EXTM3U + #EXTINF:duration,Title \n URL blocks,
+  // and bare URL-per-line lists (no EXTINF) as a fallback.
+  // baseUrl (optional) is used to resolve relative entries.
+  // ---------------------------------------------------------------
+  function parseM3U(text, baseUrl) {
+    var lines = text.split(/\r?\n/);
+    var items = [];
+    var pendingTitle = null;
+
+    function resolve(u) {
+      u = u.trim();
+      if (!u) return null;
+      if (/^https?:\/\//i.test(u)) return u;
+      if (baseUrl) {
+        try { return new URL(u, baseUrl).href; } catch (e) { /* fall through */ }
+      }
+      return u; // leave as-is; will fail URL validation later if unusable
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+      if (line.indexOf("#EXTM3U") === 0) continue;
+      if (line.indexOf("#EXTINF") === 0) {
+        var comma = line.indexOf(",");
+        pendingTitle = comma >= 0 ? line.slice(comma + 1).trim() : null;
+        continue;
+      }
+      if (line.charAt(0) === "#") continue; // other tags (#EXT-X-*, #EXTGRP, etc.) — skip
+      var url = resolve(line);
+      if (url && /^https?:\/\//i.test(url)) {
+        items.push({ title: pendingTitle || ("Video " + (items.length + 1)), url: url });
+      }
+      pendingTitle = null;
+    }
+    return items;
+  }
+
+  // ---------------------------------------------------------------
   // DOM refs
   // ---------------------------------------------------------------
   var $main = document.getElementById("main");
@@ -96,6 +136,7 @@
   var $formBody = document.getElementById("formBody");
   var $formHeading = document.getElementById("formHeading");
   var $toast = document.getElementById("toast");
+  var $fileInput = document.getElementById("fileInput");
 
   // ---------------------------------------------------------------
   // Clock
@@ -425,20 +466,195 @@
       return;
     }
     var opts = state.channels.map(function (c) { return { value: c.id, label: c.name }; });
-    openForm("Add video URL", withHint([
-      { key: "channelId", label: "Channel", type: "select", options: opts },
-      { key: "title", label: "Title", placeholder: "e.g. Episode 3" },
-      { key: "url", label: ".m3u8 URL", placeholder: "https://…/playlist.m3u8" }
-    ], "Tip: a channel with exactly 1 URL plays instantly (Live). 2+ URLs shows an episode list."), function (data) {
-      if (!data.url || !/^https?:\/\//i.test(data.url)) { toast("Enter a valid URL", true); return; }
-      var ch = state.channels.find(function (c) { return c.id === data.channelId; });
+
+    state.view = "form";
+    $formHeading.textContent = "Add video URL";
+    $formBody.innerHTML = "";
+    formFocusables = [];
+
+    // --- Upload button (parses .m3u8/.m3u list files) ---
+    var uploadWrap = document.createElement("div");
+    uploadWrap.className = "field";
+    var uploadLabel = document.createElement("label");
+    uploadLabel.textContent = "Upload playlist file";
+    uploadWrap.appendChild(uploadLabel);
+    var uploadBtn = document.createElement("div");
+    uploadBtn.className = "filebtn";
+    uploadBtn.innerHTML = "Choose .m3u8 / .m3u file<span class='fname'>No file selected</span>";
+    uploadBtn.__activate = function () {
+      $fileInput.value = "";
+      $fileInput.__targetChannelId = null; // will use the select below at import time
+      $fileInput.click();
+    };
+    uploadWrap.appendChild(uploadBtn);
+    $formBody.appendChild(uploadWrap);
+    formFocusables.push({ el: uploadBtn, isBtn: true, __activate: uploadBtn.__activate });
+
+    // channel select applies to BOTH upload import and manual add below
+    var chWrap = document.createElement("div");
+    chWrap.className = "field";
+    var chLabel = document.createElement("label");
+    chLabel.textContent = "Target channel";
+    chWrap.appendChild(chLabel);
+    var chSelect = document.createElement("select");
+    opts.forEach(function (o) {
+      var op = document.createElement("option");
+      op.value = o.value; op.textContent = o.label;
+      chSelect.appendChild(op);
+    });
+    chWrap.appendChild(chSelect);
+    $formBody.appendChild(chWrap);
+    formFocusables.push({ el: chWrap, input: chSelect, isBtn: false });
+
+    uploadBtn.__fnameEl = uploadBtn.querySelector(".fname");
+    $fileInput.onchange = function () {
+      var f = $fileInput.files && $fileInput.files[0];
+      if (!f) return;
+      uploadBtn.__fnameEl.textContent = f.name;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var parsed = parseM3U(String(reader.result || ""));
+        if (!parsed.length) {
+          toast("No playable entries found in file", true);
+          return;
+        }
+        showImportPreview(parsed, chSelect.value);
+      };
+      reader.onerror = function () {
+        toast("Could not read file", true);
+      };
+      reader.readAsText(f);
+    };
+
+    var orsep = document.createElement("div");
+    orsep.className = "orsep";
+    orsep.textContent = "or add one manually";
+    $formBody.appendChild(orsep);
+
+    // --- Manual single-URL fields (existing flow) ---
+    var titleWrap = document.createElement("div");
+    titleWrap.className = "field";
+    titleWrap.innerHTML = '<label>Title</label>';
+    var titleInput = document.createElement("input");
+    titleInput.type = "text"; titleInput.placeholder = "e.g. Episode 3";
+    titleWrap.appendChild(titleInput);
+    $formBody.appendChild(titleWrap);
+    formFocusables.push({ el: titleWrap, input: titleInput, isBtn: false });
+
+    var urlWrap = document.createElement("div");
+    urlWrap.className = "field";
+    urlWrap.innerHTML = '<label>.m3u8 URL</label>';
+    var urlInput = document.createElement("input");
+    urlInput.type = "text"; urlInput.placeholder = "https://…/playlist.m3u8";
+    urlWrap.appendChild(urlInput);
+    $formBody.appendChild(urlWrap);
+    formFocusables.push({ el: urlWrap, input: urlInput, isBtn: false });
+
+    var btnRow = document.createElement("div");
+    btnRow.className = "btnrow";
+    var saveBtn = document.createElement("div");
+    saveBtn.className = "btn primary";
+    saveBtn.textContent = "Save";
+    saveBtn.__activate = function () {
+      var url = urlInput.value.trim();
+      if (!url || !/^https?:\/\//i.test(url)) { toast("Enter a valid URL", true); return; }
+      var ch = state.channels.find(function (c) { return c.id === chSelect.value; });
       if (!ch) { toast("Channel not found", true); return; }
-      ch.urls.push({ id: uid(), title: data.title || ("Video " + (ch.urls.length + 1)), url: data.url });
+      ch.urls.push({ id: uid(), title: titleInput.value.trim() || ("Video " + (ch.urls.length + 1)), url: url });
       saveChannels();
       toast("Added to " + ch.name);
       closeForm();
       switchTab("channels");
+    };
+    btnRow.appendChild(saveBtn);
+    formFocusables.push({ el: saveBtn, isBtn: true, __activate: saveBtn.__activate });
+
+    var cancelBtn = document.createElement("div");
+    cancelBtn.className = "btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.__activate = function () { switchTab("add"); };
+    btnRow.appendChild(cancelBtn);
+    formFocusables.push({ el: cancelBtn, isBtn: true, __activate: cancelBtn.__activate });
+    $formBody.appendChild(btnRow);
+
+    var hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "Tip: a channel with exactly 1 URL plays instantly (Live). 2+ URLs shows an episode list. Uploading a playlist file imports every entry into the selected channel at once.";
+    $formBody.appendChild(hint);
+
+    formFocusIdx = 0;
+    setFormFocus(0);
+    $formView.classList.add("on");
+  }
+
+  // --- Import preview after a playlist file is parsed ---
+  function showImportPreview(parsedItems, defaultChannelId) {
+    state.view = "form";
+    $formHeading.textContent = "Import preview";
+    $formBody.innerHTML = "";
+    formFocusables = [];
+
+    var opts = state.channels.map(function (c) { return { value: c.id, label: c.name }; });
+
+    var chWrap = document.createElement("div");
+    chWrap.className = "field";
+    chWrap.innerHTML = '<label>Import into channel</label>';
+    var chSelect = document.createElement("select");
+    opts.forEach(function (o) {
+      var op = document.createElement("option");
+      op.value = o.value; op.textContent = o.label;
+      if (o.value === defaultChannelId) op.selected = true;
+      chSelect.appendChild(op);
     });
+    chWrap.appendChild(chSelect);
+    $formBody.appendChild(chWrap);
+    formFocusables.push({ el: chWrap, input: chSelect, isBtn: false });
+
+    var countDiv = document.createElement("div");
+    countDiv.className = "importcount";
+    countDiv.textContent = parsedItems.length + " entr" + (parsedItems.length === 1 ? "y" : "ies") + " found";
+    $formBody.appendChild(countDiv);
+
+    var listDiv = document.createElement("div");
+    listDiv.className = "importlist";
+    parsedItems.slice(0, 50).forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "importrow";
+      row.textContent = it.title;
+      listDiv.appendChild(row);
+    });
+    $formBody.appendChild(listDiv);
+
+    var btnRow = document.createElement("div");
+    btnRow.className = "btnrow";
+    var importBtn = document.createElement("div");
+    importBtn.className = "btn primary";
+    importBtn.textContent = "Import all";
+    importBtn.__activate = function () {
+      var ch = state.channels.find(function (c) { return c.id === chSelect.value; });
+      if (!ch) { toast("Channel not found", true); return; }
+      parsedItems.forEach(function (it) {
+        ch.urls.push({ id: uid(), title: it.title, url: it.url });
+      });
+      saveChannels();
+      toast("Imported " + parsedItems.length + " into " + ch.name);
+      closeForm();
+      switchTab("channels");
+    };
+    btnRow.appendChild(importBtn);
+    formFocusables.push({ el: importBtn, isBtn: true, __activate: importBtn.__activate });
+
+    var cancelBtn = document.createElement("div");
+    cancelBtn.className = "btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.__activate = function () { showAddUrlForm(); };
+    btnRow.appendChild(cancelBtn);
+    formFocusables.push({ el: cancelBtn, isBtn: true, __activate: cancelBtn.__activate });
+    $formBody.appendChild(btnRow);
+
+    formFocusIdx = 0;
+    setFormFocus(0);
+    $formView.classList.add("on");
   }
 
   function withHint(fields, hint) {
