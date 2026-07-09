@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="icons/icon-96.png">
 <style>
 /* ============================================================
-   UniTube — scoped stream box for keypad cloud phones
+   UniTube — scoped stream box for QVGA (240x320) keypad phones
    No frameworks. No webfonts. System UI only. Single paint pass.
    ============================================================ */
 
@@ -298,6 +298,11 @@ html,body{
   font-size:10px; letter-spacing:0; text-transform:none;
   color:var(--ink-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+.filebtn input[type=file]{
+  position:absolute; width:1px; height:1px;
+  padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
 
 .orsep{
   text-align:center; font-size:9.5px; letter-spacing:0.12em;
@@ -391,8 +396,6 @@ html,body{
     </div>
     <div id="formBody"></div>
   </div>
-
-  <input type="file" id="fileInput" accept=".m3u8,.m3u,audio/x-mpegurl,application/x-mpegurl,application/vnd.apple.mpegurl" style="display:none">
 
   <div id="toast"></div>
 </div>
