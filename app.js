@@ -750,13 +750,49 @@
     destroyHls();
 
     var src = video.url;
+
+    // Translate hls.js's internal error codes into a plain-language
+    // reason, since "manifestLoadError" tells the user nothing.
+    function explainError(data) {
+      var det = (data && data.details) || "";
+      var status = data && data.response && data.response.code;
+      if (det.indexOf("NetworkError") === 0 || det === "manifestLoadError" || det === "manifestLoadTimeOut" || det === "levelLoadError") {
+        if (status === 403 || status === 401) {
+          return "Blocked (HTTP " + status + "). This link likely expired or isn't meant for direct playback — YouTube stream URLs are usually temporary/signed and stop working outside the YouTube app within minutes to hours.";
+        }
+        if (status === 404) {
+          return "Not found (HTTP 404). The link is dead or was copied incorrectly.";
+        }
+        if (status) {
+          return "Server rejected the request (HTTP " + status + ").";
+        }
+        return "Couldn't reach this URL. It may have expired, be blocked by CORS, or require the request to come from within YouTube itself.";
+      }
+      if (det.indexOf("Parse") >= 0 || det === "manifestParsingError") {
+        return "This file isn't a playable HLS playlist — the URL may point to a webpage or a different format, not an .m3u8.";
+      }
+      if (det.indexOf("bufferAppendError") >= 0 || det.indexOf("buffer") >= 0) {
+        return "This device's video decoder couldn't handle this stream's format (codec unsupported).";
+      }
+      return det || "Unknown playback error.";
+    }
+
+    function showFatalError(data) {
+      var msg = explainError(data);
+      $pState.innerHTML =
+        '<div style="max-width:200px;text-align:center;padding:0 10px;pointer-events:auto">' +
+          '<div style="color:#e0665a;font-size:11px;margin-bottom:6px">Playback failed</div>' +
+          '<div style="font-size:10px;color:#cfd3c9;line-height:1.4">' + escapeHtml(msg) + '</div>' +
+        '</div>';
+      toast("Playback failed — see details on screen", true);
+    }
+
     if (window.Hls && window.Hls.isSupported()) {
       var hls = new Hls({ maxBufferLength: 20, enableWorker: true });
       state.hls = hls;
       hls.on(Hls.Events.ERROR, function (evt, data) {
         if (data && data.fatal) {
-          $pState.textContent = "Playback error";
-          toast("Stream error: " + (data.details || "unknown"), true);
+          showFatalError(data);
         }
       });
       hls.loadSource(src);
@@ -767,6 +803,9 @@
       });
     } else if ($video.canPlayType("application/vnd.apple.mpegurl")) {
       $video.src = src;
+      $video.addEventListener("error", function () {
+        showFatalError({ details: "NetworkError" });
+      }, { once: true });
       $video.addEventListener("loadedmetadata", function () {
         $pState.textContent = "";
         $video.play().catch(function () {});
