@@ -7,12 +7,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<title>MOSA</title>
+<title>UniTube</title>
 <link rel="icon" href="icons/icon-96.png">
 <link rel="apple-touch-icon" href="icons/icon-96.png">
 <style>
 /* ============================================================
-   MOSA — scoped stream box for QVGA (240x320) keypad phones
+   UniTube — scoped stream box for QVGA (240x320) keypad phones
    No frameworks. No webfonts. System UI only. Single paint pass.
    ============================================================ */
 
@@ -282,6 +282,39 @@ html,body{
 .btn.focus{ border-color:var(--phos); background:var(--focus-bg); color:var(--phos); }
 .hint{ font-size:10px; color:var(--ink-dim); margin-top:8px; line-height:1.5; }
 
+.filebtn{
+  display:block; text-align:center;
+  padding:8px 6px;
+  border:1px dashed var(--phos-dim);
+  border-radius:2px;
+  font-size:12px; letter-spacing:0.06em;
+  color:var(--phos); background:var(--bg-raise);
+  margin-bottom:5px;
+  text-transform:uppercase;
+}
+.filebtn.focus{ border-style:solid; border-color:var(--phos); background:var(--focus-bg); }
+.filebtn .fname{
+  display:block; margin-top:3px;
+  font-size:10px; letter-spacing:0; text-transform:none;
+  color:var(--ink-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+.orsep{
+  text-align:center; font-size:9.5px; letter-spacing:0.12em;
+  color:var(--ink-dim); text-transform:uppercase;
+  margin:10px 0 8px; position:relative;
+}
+.orsep::before, .orsep::after{
+  content:""; position:absolute; top:50%; width:38%;
+  border-top:1px solid var(--line);
+}
+.orsep::before{ left:0; } .orsep::after{ right:0; }
+
+.importlist{ max-height:120px; overflow-y:auto; border:1px solid var(--line); border-radius:2px; margin-top:6px; }
+.importrow{ padding:5px 6px; font-size:11px; border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.importrow:last-child{ border-bottom:none; }
+.importcount{ font-size:10px; color:var(--phos-dim); margin-top:4px; }
+
 /* toast */
 #toast{
   position:absolute; left:8px; right:8px; bottom:8px;
@@ -318,7 +351,7 @@ html,body{
 <div id="app">
 
   <div id="hdr">
-    <div class="brand">MOSA<small> · stream box</small></div>
+    <div class="brand">UNITUBE<small> · stream box</small></div>
     <div class="clock" id="clock">--:--</div>
   </div>
 
@@ -358,6 +391,8 @@ html,body{
     </div>
     <div id="formBody"></div>
   </div>
+
+  <input type="file" id="fileInput" accept=".m3u8,.m3u,audio/x-mpegurl,application/x-mpegurl,application/vnd.apple.mpegurl" style="display:none">
 
   <div id="toast"></div>
 </div>
